@@ -94,11 +94,14 @@ jobs:
             --fetch-submodules \
             -j"$(nproc --all)"
 
-      - name: Update KernelSU-Next to latest tracked revision
+      - name: Update KernelSU-Next from official upstream
         working-directory: ${{ env.BUILD_DIR }}
         run: |
+          git -C common submodule set-url KernelSU-Next https://github.com/KernelSU-Next/KernelSU-Next.git
+          git -C common config -f .gitmodules submodule.KSUN.branch dev
+          git -C common submodule sync -- KernelSU-Next
           git -C common submodule update --init --remote KernelSU-Next
-          echo "KernelSU-Next revision: $(git -C common/KernelSU-Next rev-parse HEAD)"
+          echo "KernelSU-Next upstream revision: $(git -C common/KernelSU-Next rev-parse HEAD)"
 
       - name: Build and package all kernel configurations
         working-directory: ${{ env.BUILD_DIR }}

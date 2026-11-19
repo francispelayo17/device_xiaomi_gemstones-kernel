@@ -19,7 +19,7 @@ Please [report issues here](https://github.com/chickendrop89/device_xiaomi_unifi
 For building, upstreaming `KSU-Next`/`SuSFS`, automated builds using actions, [view this wiki](https://github.com/chickendrop89/device_xiaomi_unified-kernel/wiki/Build-notes)
 
 # 🤖 GitHub Actions build:
-To customize the kernel name, edit [`kernel-name.txt`](./kernel-name.txt) in the repository root and commit the change. The name is used in the AnyKernel installer display, ZIP filenames, and Telegram captions. Then run **Build and Send Kernel** from the repository's Actions tab and choose a build variant. Select one variant for a faster build, or `all` to build all three. Before building, it updates KernelSU-Next to the latest commit on the branch configured by the kernel source's `.gitmodules` (`next-susfs`), then uploads the ZIP files as workflow artifacts and sends them to Telegram.
+To customize the kernel name, edit [`kernel-name.txt`](./kernel-name.txt) in the repository root and commit the change. The name is used in the AnyKernel installer display, ZIP filenames, and Telegram captions. Then run **Build and Send Kernel** from the repository's Actions tab and choose a build variant. Select one variant for a faster build, or `all` to build all three. Before building, it updates KernelSU-Next from the official [KernelSU-Next repository](https://github.com/KernelSU-Next/KernelSU-Next), using its `dev` branch, then uploads the ZIP files as workflow artifacts and sends them to Telegram.
 
 Before running it, add these repository Actions secrets:
 - `TELEGRAM_BOT_TOKEN`: the token from BotFather
