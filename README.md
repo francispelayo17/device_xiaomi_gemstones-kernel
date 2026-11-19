@@ -18,6 +18,13 @@ Please [report issues here](https://github.com/chickendrop89/device_xiaomi_unifi
 # 🏗️ Build notes:
 For building, upstreaming `KSU-Next`/`SuSFS`, automated builds using actions, [view this wiki](https://github.com/chickendrop89/device_xiaomi_unified-kernel/wiki/Build-notes)
 
+# 🤖 GitHub Actions build:
+Run **Build and Send Kernel** from the repository's Actions tab. It builds and packages all three supported configurations, uploads the ZIP files as workflow artifacts, and sends them to Telegram.
+
+Before running it, add these repository Actions secrets:
+- `TELEGRAM_BOT_TOKEN`: the token from BotFather
+- `TELEGRAM_CHAT_ID`: the destination chat ID; make sure the bot can post in that chat
+
 # 🏗️ Kernel quirks
 For any other kernel developers out there. 
 

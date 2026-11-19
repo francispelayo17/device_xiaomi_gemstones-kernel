@@ -1,0 +1,164 @@
+name: Build and Send Kernel
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-kernel-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      KERNEL_REPOSITORY: ${{ github.repository }}
+      BUILD_DIR: ${{ github.workspace }}/kernel-build
+      FINAL_DIR: ${{ github.workspace }}/kernel-build/final_images
+      BUILD_CONFIGS: >-
+        build.config.gki.aarch64.chickernel
+        build.config.gki.aarch64.chickernel.ksun
+        build.config.gki.aarch64.chickernel.ksun.susfs
+
+    steps:
+      - name: Validate Telegram secrets
+        run: |
+          if [[ -z "$TELEGRAM_BOT_TOKEN" || -z "$TELEGRAM_CHAT_ID" ]]; then
+            echo "::error::Set the TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID repository Actions secrets."
+            exit 1
+          fi
+
+      - name: Prepare local manifest
+        run: |
+          mkdir -p "$BUILD_DIR/.repo/local_manifests"
+          kernel_owner="${KERNEL_REPOSITORY%%/*}"
+          kernel_name="${KERNEL_REPOSITORY#*/}"
+          cat > "$BUILD_DIR/.repo/local_manifests/custom.xml" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <manifest>
+            <remote name="common-repo" fetch="https://github.com/${kernel_owner}" />
+            <remove-project name="kernel/common" />
+            <project path="common" name="${kernel_name}" remote="common-repo" revision="android13-5.15-lts">
+              <linkfile src="." dest=".source_date_epoch_dir" />
+            </project>
+          </manifest>
+          EOF
+
+          mkdir -p "$HOME/.bin"
+          curl --fail --silent --show-error \
+            https://storage.googleapis.com/git-repo-downloads/repo \
+            --output "$HOME/.bin/repo"
+          chmod a+rx "$HOME/.bin/repo"
+          echo "$HOME/.bin" >> "$GITHUB_PATH"
+
+      - name: Free runner disk space
+        uses: rokibhasansagar/slimhub_actions@main
+
+      - name: Initialize and sync Android kernel sources
+        working-directory: ${{ env.BUILD_DIR }}
+        run: |
+          repo init \
+            --no-tags \
+            --depth=1 \
+            --dissociate \
+            -u https://android.googlesource.com/kernel/manifest \
+            -b common-android13-5.15
+
+          repo sync \
+            --no-tags \
+            --clone-bundle \
+            --current-branch \
+            --optimized-fetch \
+            --force-sync \
+            --fetch-submodules \
+            -j"$(nproc --all)"
+
+      - name: Build and package all kernel configurations
+        working-directory: ${{ env.BUILD_DIR }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$FINAL_DIR"
+          git clone --depth=1 https://github.com/ChicKernel/AnyKernel3.git anykernel3
+
+          for config in $BUILD_CONFIGS; do
+            echo "Building $config"
+            BUILD_CONFIG="common/$config" \
+              FAST_BUILD=1 \
+              OUT_DIR="$BUILD_DIR/out" \
+              build/build.sh
+
+            image="$BUILD_DIR/out/dist/Image"
+            if [[ ! -s "$image" ]]; then
+              echo "::error::Kernel image was not produced for $config."
+              exit 1
+            fi
+
+            package_dir="$BUILD_DIR/anykernel3-$config"
+            cp -a anykernel3 "$package_dir"
+            cp "$image" "$package_dir/Image"
+            (
+              cd "$package_dir"
+              zip -qr "$FINAL_DIR/$config.zip" . \
+                -x ".git/*" "README.md" "*placeholder"
+            )
+            rm -rf "$package_dir"
+          done
+
+      - name: Upload packages as workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-packages
+          path: ${{ env.FINAL_DIR }}/*.zip
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Send packages to Telegram
+        working-directory: ${{ env.FINAL_DIR }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          packages=(*.zip)
+          if (( ${#packages[@]} == 0 )); then
+            echo "::error::No kernel packages were produced."
+            exit 1
+          fi
+
+          for package in "${packages[@]}"; do
+            size_bytes="$(stat -c '%s' "$package")"
+            if (( size_bytes > 50000000 )); then
+              echo "::error::${package} exceeds Telegram's 50 MB Bot API upload limit."
+              exit 1
+            fi
+
+            response_file="$(mktemp)"
+            status_file="$(mktemp)"
+            if ! curl --silent \
+              --max-time 300 \
+              --output "$response_file" \
+              --write-out '%{http_code}' \
+              --form-string "chat_id=${TELEGRAM_CHAT_ID}" \
+              --form-string "caption=Kernel build ${GITHUB_SHA:0:12}: ${package%.zip}" \
+              --form "document=@${package};type=application/zip" \
+              "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument" \
+              > "$status_file"; then
+              rm -f "$response_file" "$status_file"
+              echo "::error::Telegram upload request failed for ${package}."
+              exit 1
+            fi
+
+            http_status="$(cat "$status_file")"
+            if [[ "$http_status" != "200" ]] || ! jq -e '.ok == true' "$response_file" >/dev/null; then
+              description="$(jq -r '.description // "Unexpected Telegram API response"' "$response_file")"
+              rm -f "$response_file" "$status_file"
+              echo "::error::Telegram upload failed for ${package} (HTTP ${http_status}): ${description}"
+              exit 1
+            fi
+
+            rm -f "$response_file" "$status_file"
+            echo "Sent ${package} to Telegram."
+          done
