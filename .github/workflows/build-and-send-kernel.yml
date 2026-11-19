@@ -17,7 +17,6 @@ jobs:
     env:
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-      KERNEL_REPOSITORY: ${{ github.repository }}
       BUILD_DIR: ${{ github.workspace }}/kernel-build
       FINAL_DIR: ${{ github.workspace }}/kernel-build/final_images
       BUILD_CONFIGS: >-
@@ -36,14 +35,12 @@ jobs:
       - name: Prepare local manifest
         run: |
           mkdir -p "$BUILD_DIR/.repo/local_manifests"
-          kernel_owner="${KERNEL_REPOSITORY%%/*}"
-          kernel_name="${KERNEL_REPOSITORY#*/}"
           cat > "$BUILD_DIR/.repo/local_manifests/custom.xml" <<EOF
           <?xml version="1.0" encoding="UTF-8"?>
           <manifest>
-            <remote name="common-repo" fetch="https://github.com/${kernel_owner}" />
+            <remote name="common-repo" fetch="https://github.com/chickendrop89/" />
             <remove-project name="kernel/common" />
-            <project path="common" name="${kernel_name}" remote="common-repo" revision="android13-5.15-lts">
+            <project path="common" name="device_xiaomi_gemstones-kernel" remote="common-repo" revision="android13-5.15-lts">
               <linkfile src="." dest=".source_date_epoch_dir" />
             </project>
           </manifest>
