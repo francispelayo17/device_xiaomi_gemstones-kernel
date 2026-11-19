@@ -2,6 +2,22 @@ name: Build and Send Kernel
 
 on:
   workflow_dispatch:
+    inputs:
+      kernel_name:
+        description: Name shown by AnyKernel and used in package filenames
+        required: true
+        default: ChicKernel
+        type: string
+      build_variant:
+        description: Build one variant for a faster run, or all variants
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - chickernel
+          - ksun
+          - ksun-susfs
 
 permissions:
   contents: read
@@ -17,18 +33,20 @@ jobs:
     env:
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      KERNEL_NAME: ${{ inputs.kernel_name }}
+      BUILD_VARIANT: ${{ inputs.build_variant }}
       BUILD_DIR: ${{ github.workspace }}/kernel-build
       FINAL_DIR: ${{ github.workspace }}/kernel-build/final_images
-      BUILD_CONFIGS: >-
-        build.config.gki.aarch64.chickernel
-        build.config.gki.aarch64.chickernel.ksun
-        build.config.gki.aarch64.chickernel.ksun.susfs
 
     steps:
       - name: Validate Telegram secrets
         run: |
           if [[ -z "$TELEGRAM_BOT_TOKEN" || -z "$TELEGRAM_CHAT_ID" ]]; then
             echo "::error::Set the TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID repository Actions secrets."
+            exit 1
+          fi
+          if [[ ! "$KERNEL_NAME" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$ ]]; then
+            echo "::error::Kernel name must be 1-40 characters: letters, numbers, dots, underscores, or hyphens."
             exit 1
           fi
 
@@ -77,6 +95,12 @@ jobs:
             --fetch-submodules \
             -j"$(nproc --all)"
 
+      - name: Update KernelSU-Next to latest tracked revision
+        working-directory: ${{ env.BUILD_DIR }}
+        run: |
+          git -C common submodule update --init --remote KernelSU-Next
+          echo "KernelSU-Next revision: $(git -C common/KernelSU-Next rev-parse HEAD)"
+
       - name: Build and package all kernel configurations
         working-directory: ${{ env.BUILD_DIR }}
         run: |
@@ -84,7 +108,30 @@ jobs:
           mkdir -p "$FINAL_DIR"
           git clone --depth=1 https://github.com/ChicKernel/AnyKernel3.git anykernel3
 
-          for config in $BUILD_CONFIGS; do
+          case "$BUILD_VARIANT" in
+            all)
+              build_configs=(
+                build.config.gki.aarch64.chickernel
+                build.config.gki.aarch64.chickernel.ksun
+                build.config.gki.aarch64.chickernel.ksun.susfs
+              )
+              ;;
+            chickernel)
+              build_configs=(build.config.gki.aarch64.chickernel)
+              ;;
+            ksun)
+              build_configs=(build.config.gki.aarch64.chickernel.ksun)
+              ;;
+            ksun-susfs)
+              build_configs=(build.config.gki.aarch64.chickernel.ksun.susfs)
+              ;;
+            *)
+              echo "::error::Unsupported build variant: $BUILD_VARIANT"
+              exit 1
+              ;;
+          esac
+
+          for config in "${build_configs[@]}"; do
             echo "Building $config"
             BUILD_CONFIG="common/$config" \
               FAST_BUILD=1 \
@@ -100,9 +147,10 @@ jobs:
             package_dir="$BUILD_DIR/anykernel3-$config"
             cp -a anykernel3 "$package_dir"
             cp "$image" "$package_dir/Image"
+            sed -i "s|^kernel.string=.*|kernel.string=${KERNEL_NAME}|" "$package_dir/anykernel.sh"
             (
               cd "$package_dir"
-              zip -qr "$FINAL_DIR/$config.zip" . \
+              zip -qr "$FINAL_DIR/$KERNEL_NAME-$config.zip" . \
                 -x ".git/*" "README.md" "*placeholder"
             )
             rm -rf "$package_dir"
@@ -141,7 +189,7 @@ jobs:
               --output "$response_file" \
               --write-out '%{http_code}' \
               --form-string "chat_id=${TELEGRAM_CHAT_ID}" \
-              --form-string "caption=Kernel build ${GITHUB_SHA:0:12}: ${package%.zip}" \
+              --form-string "caption=${KERNEL_NAME} build ${GITHUB_SHA:0:12}: ${package%.zip}" \
               --form "document=@${package};type=application/zip" \
               "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument" \
               > "$status_file"; then
