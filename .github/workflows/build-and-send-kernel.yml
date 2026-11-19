@@ -3,11 +3,6 @@ name: Build and Send Kernel
 on:
   workflow_dispatch:
     inputs:
-      kernel_name:
-        description: Name shown by AnyKernel and used in package filenames
-        required: true
-        default: ChicKernel
-        type: string
       build_variant:
         description: Build one variant for a faster run, or all variants
         required: true
@@ -33,22 +28,26 @@ jobs:
     env:
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-      KERNEL_NAME: ${{ inputs.kernel_name }}
       BUILD_VARIANT: ${{ inputs.build_variant }}
       BUILD_DIR: ${{ github.workspace }}/kernel-build
       FINAL_DIR: ${{ github.workspace }}/kernel-build/final_images
 
     steps:
+      - name: Check out workflow configuration
+        uses: actions/checkout@v4
+
       - name: Validate Telegram secrets
         run: |
           if [[ -z "$TELEGRAM_BOT_TOKEN" || -z "$TELEGRAM_CHAT_ID" ]]; then
             echo "::error::Set the TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID repository Actions secrets."
             exit 1
           fi
+          KERNEL_NAME="$(tr -d '\r\n' < kernel-name.txt)"
           if [[ ! "$KERNEL_NAME" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$ ]]; then
-            echo "::error::Kernel name must be 1-40 characters: letters, numbers, dots, underscores, or hyphens."
+            echo "::error::kernel-name.txt must contain 1-40 letters, numbers, dots, underscores, or hyphens, starting with a letter or number."
             exit 1
           fi
+          echo "KERNEL_NAME=$KERNEL_NAME" >> "$GITHUB_ENV"
 
       - name: Prepare local manifest
         run: |
