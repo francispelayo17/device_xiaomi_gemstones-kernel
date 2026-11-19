@@ -43,6 +43,8 @@ jobs:
             <project path="common" name="device_xiaomi_gemstones-kernel" remote="common-repo" revision="android13-5.15-lts">
               <linkfile src="." dest=".source_date_epoch_dir" />
             </project>
+            <remove-project name="platform/prebuilts/clang/host/linux-x86" />
+            <project path="prebuilts/clang/host/linux-x86" name="platform/prebuilts/clang/host/linux-x86" revision="main" clone-depth="1" />
           </manifest>
           EOF
 
